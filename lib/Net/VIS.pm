@@ -548,6 +548,11 @@ sub vlan_alloc {
     return -1;
   }
 
+  if(not $self->vlan_in_range($opts->{'type_id'}, $opts->{'vlan_tag'})) {
+    carp("VLAN tag ".$opts->{'vlan_tag'}." is not within VLAN type range\n");
+    return -2;
+  }
+
   if($self->is_vlan_alloc($opts->{'domain_id'},$opts->{'vlan_tag'})) {
     carp("Unable to make VLAN allocation, VLAN already exists!\n");
     return -2;
@@ -616,6 +621,43 @@ sub mod_vlan_alloc_vlan_description {
 
 # subroutines managing VLAN Types
 
+# Check if tag is within type range
+sub vlan_in_range {
+  my $self = shift;
+  my $type_id = shift;
+  my $vlan_tag = shift;
+
+  if(not defined $type_id) {
+    carp("Missing type_id\n");
+    return -1;
+  }
+  if(not defined $vlan_tag) {
+    carp("Missing vlan_tag\n");
+    return -1;
+  }
+
+  if($type_id !~ m/^[0-9]+$/) {
+    carp("type_id is not INT\n");
+    return -1;
+  }
+  if($vlan_tag !~ m/^[0-9]+$/) {
+    carp("vlan_tag is not INT\n");
+    return -1;
+  }
+
+  my $type = $self->_select("SELECT vlan_low,vlan_high FROM VLAN_Types WHERE id = ".$self->_escape($type_id));
+  if(@{$type} <= 0) {
+    carp("Could not find VLAN type with ID $type_id\n");
+    return -2;
+  }
+
+  if($vlan_tag >= @{$type}[0]->{'vlan_low'} and $vlan_tag <= @{$type}[0]->{'vlan_high'}) {
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
 # Get VLAN type information
 sub get_vlan_type {
   my $self = shift;
@@ -624,10 +666,10 @@ sub get_vlan_type {
 
   my $query = "SELECT d.domain_serial,d.domain_name,vt.id,vt.name,vt.description,vt.vlan_low,vt.vlan_high FROM VLAN_Types AS vt INNER JOIN Domain AS d ON vt.domain_id = d.id";
 
-  push(@where, "d.id = 0 OR d.id = ".$filter->{'id'}) if $filter->{'id'};
-  push(@where, "d.domain_serial = ".$filter->{'domain_serial'}) if $filter->{'domain_serial'};
-  push(@where, "d.domain_name = 'Global' OR d.domain_name = '".$filter->{'domain_name'}."'") if $filter->{'domain_name'};
-  push(@where, "vt.name = '".$filter->{'name'}."'") if $filter->{'name'};
+  push(@where, "d.id = ".$self->_escape($filter->{'id'})) if $filter->{'id'};
+  push(@where, "d.domain_serial = ".$self->_escape($filter->{'domain_serial'})) if $filter->{'domain_serial'};
+  push(@where, "(d.domain_name = 'Global' OR d.domain_name = '".$self->_escape($filter->{'domain_name'})."')") if $filter->{'domain_name'};
+  push(@where, "vt.name = '".$self->_escape($filter->{'name'})."'") if $filter->{'name'};
 
   for ( my $i=0; $i < @where; $i++ ) {
     $query .= $i ? " AND " : " WHERE ";
